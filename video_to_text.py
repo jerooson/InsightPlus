@@ -4,6 +4,7 @@ import openai
 import yt_dlp
 from pydub import AudioSegment
 from dotenv import load_dotenv
+import datetime
 
 # Load environment variables
 load_dotenv()
@@ -85,22 +86,30 @@ def transcribe_audio_chunks(audio_chunks, api_key):
 
 
 def main():
-    url = 'https://youtu.be/Wq2hyPeIHj4'
+    url = 'https://www.youtube.com/watch?v=bwcD8VAfYJQ'
     api_key = os.getenv('OPENAI_TOKEN')
 
     # Step 1: Download audio from YouTube
     audio_file = download_audio_from_youtube(url)
-    # audio_file = "OpenAI API Structured Outputs For Finance [jqp7WO3pCFA].webm"
     print("----------------------------------------------------------------")
     print(f"Downloaded audio to {audio_file}")
 
     # Step 2: Truncate the audio into smaller chunks
     chunks = truncate_audio(audio_file, target_size_mb=25)
     print(f"Audio has been split into {len(chunks)} chunks.")
-    # chunks = [audio_file]
+
+    # Generate a timestamp for identification
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     # Step 3: Transcribe each chunk using Whisper API
     full_transcript = transcribe_audio_chunks(chunks, api_key)
     print("Full Transcript:\n", full_transcript)
+
+    # Save the transcript to a file with a timestamp
+    with open(f"transcript_{timestamp}.txt", "w") as file:
+        file.write(full_transcript)
+
+    print(f"Transcript saved as transcript_{timestamp}.txt")
 
 
 if __name__ == "__main__":
