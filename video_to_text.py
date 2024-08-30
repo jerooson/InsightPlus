@@ -88,29 +88,59 @@ def transcribe_audio_chunks(audio_chunks, api_key):
     print("Whisper API processing complete.")
     return " ".join(transcripts)
 
-# Main function to orchestrate the entire process
-
 # Function to generate a report using OpenAI's GPT-4o-mini
-
-
-def generate_report_from_transcript(transcript_path, api_key, model="gpt-4o-mini"):
+def generate_report_from_transcript(transcript_path, api_key, model="gpt-4o-mini", temperature=0.1):
     openai.api_key = api_key
 
     # Read the transcript from the file
     with open(transcript_path, "r") as file:
         transcript_text = file.read()
 
+    # Define the prompt for refining the transcript
+    refinement_prompt = f"""
+    You are a skilled editor. Please take the following transcript and improve its grammar, punctuation, and clarity. Ensure the sentences are coherent and easy to understand while preserving the original meaning.
+
+    Transcript:
+    {transcript_text}
+    """
+
+    # Log the prompt
+    print("Refining transcript with the following prompt")
+
+    try:
+        # Generate the refined transcript
+        response = openai.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": "You are a skilled editor."},
+                {"role": "user", "content": refinement_prompt}
+            ],
+            temperature=temperature,
+            top_p=0.9,        # Ensures the output is more focused
+            frequency_penalty=0.2,  # Slightly reduces repetition
+            presence_penalty=0.0
+        )
+
+        refined_text = response.choices[0].message.content.strip()
+
+        # Log the refined text
+        print("Refined Transcript:\n", refined_text)
+    except Exception as e:
+        print(f"Error during transcript refinement: {e}")
+        return None
+    
     # Define the prompt for the report generation
     report_prompt = f"""
     You are an experienced financial analyst working with the industry for over 30 years. 
-    Based on the following transcript from a financial video, please extract all the tickers mentioned and generate a detailed report including:
+    Based on the following transcript from a financial video, please extract all the tickers mentioned and list out first,
+    then and generate a detailed report including:
     1. Key Tickers mentioned and their opinions.
     2. Support and Resistance levels for key stocks.
     3. General Takeaways from Macro events, Sentiment.
     4. Potential Trades for the Next Week.
 
     Transcript:
-    {transcript_text}
+    {refined_text}
     """
 
     # Log the prompt
@@ -123,7 +153,8 @@ def generate_report_from_transcript(transcript_path, api_key, model="gpt-4o-mini
             messages=[
                 {"role": "system", "content": "You are an experienced financial analyst working with the industry for over 30 years."},
                 {"role": "user", "content": report_prompt}
-            ]
+            ],
+            temperature=temperature
         )
 
         report_text = response.choices[0].message.content.strip()
@@ -136,26 +167,15 @@ def generate_report_from_transcript(transcript_path, api_key, model="gpt-4o-mini
 
     # Generate the prompt for ticker generation
     ticker_prompt = f"""
-    Based on the transcript, please extract all the tickers mentioned and generate a list of tickers to watchlist.
+    Based on the report generate by gpt, please extract all the tickers mentioned and generate a list of tickers to watchlist.
     This list should be able to directly import to TradingView.
-    Taking the Format the tickers for TradingView import shown below as an example, and no more other words needed:
+    Taking the Format the tickers for TradingView import shown below as an example and no more other words needed,
+    the custom section start with ### such as ###Tech Section, and then it should followed section's name such as NASDAQ
+    and lastly add the ticker name such as AAPL, this is the template example you should follow:
 
-    
-    ###Tech Stocks
-    NASDAQ:AAPL,NASDAQ:GOOGL,NASDAQ:NVDA,NASDAQ:META
-
-    ###Financials
-    NYSE:JPM,NYSE:GS
-
-    ###Consumer Goods
-    NYSE:PG
-
-    ###Other Stocks
-    NYSE:CVNA,NYSE:PLTR,NASDAQ:PANW,NYSE:ONON,AMEX:SOXL
-
-    
+    ###TECH STOCKS,NASDAQ:AAPL,NASDAQ:GOOGL,NASDAQ:NVDA,NASDAQ:META,###FINANCIALS,NYSE:JPM,NYSE:GS,###CONSUMER GOODS,NYSE:PG,###OTHER STOCKS,NYSE:CVNA,NYSE:PLTR,NASDAQ:PANW,NYSE:ONON,AMEX:SOXL,NASDAQ:APPS,NYSE:UBER,NASDAQ:QQQ,NASDAQ:MSTR,NYSE:PHM,NASDAQ:AFRM,NASDAQ:Z
     Transcript:
-    {transcript_text}
+    {report_text}
     """
 
     # Log the prompt for ticker generation
@@ -168,7 +188,8 @@ def generate_report_from_transcript(transcript_path, api_key, model="gpt-4o-mini
             messages=[
                 {"role": "system", "content": "You are an experienced financial analyst working with the industry for over 30 years"},
                 {"role": "user", "content": ticker_prompt}
-            ]
+            ],
+            temperature=temperature
         )
 
         tickers_text = ticker_response.choices[0].message.content.strip()
@@ -183,21 +204,25 @@ def generate_report_from_transcript(transcript_path, api_key, model="gpt-4o-mini
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Save the report and tickers to files
+    refined_filename = f"refined_{timestamp}.txt"
     report_filename = f"report_{timestamp}.txt"
     tickers_filename = f"tickers_{timestamp}.txt"
 
     try:
+        with open(refined_filename, "w") as refine_file:
+            refine_file.write(refined_text)
         with open(report_filename, "w") as report_file:
             report_file.write(report_text)
 
         with open(tickers_filename, "w") as tickers_file:
             tickers_file.write(tickers_text)
 
+        print(f"Refined saved as {refined_filename}")
         print(f"Report saved as {report_filename}")
         print(f"Tickers saved as {tickers_filename}")
     except Exception as e:
         print(f"Error saving files: {e}")
-    return report_text, tickers_text
+    return refined_text, report_text, tickers_text
 
 # Function to save the report as a CSV file
 def save_report_as_csv(report_text, timestamp):
@@ -239,8 +264,9 @@ def save_report_as_csv(report_text, timestamp):
         print(f"Error saving CSV file: {e}")
 
 def main():
-    url = 'https://youtu.be/cZsopX0ZPVA'
     api_key = os.getenv('OPENAI_TOKEN')
+
+    url = input("Please enter the YouTube video URL: ")
 
     # # Step 1: Download audio from YouTube
     audio_file = download_audio_from_youtube(url)
@@ -265,24 +291,12 @@ def main():
     print(f"Transcript saved as transcript_{timestamp}.txt")
 
     transcript_path = f"transcript_{timestamp}.txt"
+    
+    # transcript_path = "transcript_20240825_222102.txt"
+
     model = "gpt-4o-mini"
-    report_text, tickers_text = generate_report_from_transcript(transcript_path, api_key, model)
+    refined_text, report_text, tickers_text = generate_report_from_transcript(transcript_path, api_key, model)
 
-    # if report_text:
-    #         # Generate a timestamp for identification
-    #         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    #         # Save the report as CSV
-    #         save_report_as_csv(report_text, timestamp)
-
-    #         if tickers_text:
-    #             # Save the tickers to a file
-    #             tickers_filename = f"tickers_{timestamp}.txt"
-    #             with open(tickers_filename, "w") as tickers_file:
-    #                 tickers_file.write(tickers_text)
-    #             print(f"Tickers saved as {tickers_filename}")
-    # else:
-    #     print("Failed to generate report or tickers.")
-
+    
 if __name__ == "__main__":
     main()
